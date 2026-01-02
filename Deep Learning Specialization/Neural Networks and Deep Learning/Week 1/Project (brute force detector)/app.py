@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, session
 from helpers import generate_public_ip, generate_user_agent
 from datetime import datetime
 
@@ -12,17 +12,22 @@ USERS = {
 }
 
 auth_logs = []
-failed_attempts = []
+failed_attempts = {}
 
 @app.route('/', methods=['GET', 'POST'])
 def home():
 
-    ip = generate_public_ip()
-    user_agent = generate_user_agent()
+    ip = session.get('current_ip', generate_public_ip())
+    user_agent = session.get('current_user_agent', generate_user_agent())
 
     if request.method == 'POST':
+        ip = request.form.get('current_ip', generate_public_ip())
+        user_agent = request.form.get('current_user_agent', generate_user_agent())
         username = request.form.get('username')
         password = request.form.get('password')
+
+        session['current_ip'] = ip
+        session['current_user_agent'] = user_agent
 
         log_entry = {
             'timestamp': datetime.now().isoformat(),
@@ -91,6 +96,8 @@ def home():
                 <form method="POST">
                     <input type="text" name="username" placeholder="Username" required><br>
                     <input type="password" name="password" placeholder="Password" required><br>
+                    <input type="hidden" name="current_ip" id="hidden-ip" value="{{ ip }}">
+                    <input type="hidden" name="current_user_agent" id="hidden-ua" value="{{ user_agent }}">
                     <button type="submit">Login</button>
                 </form>
                 <p style="color: #666; font-size: 12px; margin-top: 20px;">
@@ -105,6 +112,20 @@ def home():
                         .then(data => {
                             document.getElementById('current-ip').textContent = data.new_ip;
                             document.getElementById('current-ua').textContent = data.new_user_agent;
+                                  
+                            document.getElementById('hidden-ip').value = data.new_ip;
+                            document.getElementById('hidden-ua').value = data.new_user_agent;
+                                  
+                            fetch('/api/set-source', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    ip: data.new_ip,
+                                    user_agent: data.new_user_agent
+                                })
+                            });
                         })
                         .catch(error => {
                             console.error('Error:', error);
@@ -115,6 +136,13 @@ def home():
     </html>
     ''', ip=ip, user_agent=user_agent)
 
+@app.route('/api/set-source', methods=['POST'])
+def set_source():
+    data = request.get_json()  # Mudar para get_json()
+    session['current_ip'] = data.get('ip')
+    session['current_user_agent'] = data.get('user_agent')
+    return jsonify({'status': 'success'})
+
 @app.route('/logs')
 def show_logs():
     logs_html = "<h2>Authentication Logs</h2>"
@@ -123,7 +151,7 @@ def show_logs():
         color = "green" if log.get('success') else "red"
         logs_html += f'''
         <div style="border: 1px solid #ccc; margin: 10px; padding: 10px; background: #f9f9f9;">
-            <p><b>{log['timestamp']}</b> - IP: {log['ip']}</p>
+            <p><b>{log['timestamp']}</b> - IP: {log['ip']} - User-Agent: {log['user_agent']}</p>
             <p>Usuário: {log['username']} - 
                <span style="color: {color}; font-weight: bold;">
                  {"SUCCESS" if log.get('success') else "FAILURE"}
