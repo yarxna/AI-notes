@@ -1,192 +1,303 @@
-from flask import Flask, request, jsonify, render_template_string, session
+from flask import Flask, render_template_string, session, request, jsonify
 from helpers import generate_public_ip, generate_user_agent
 from datetime import datetime
+import sqlite3
+import time
 
 app = Flask(__name__)
-app.secret_key = '123456'
+app.secret_key = "this is a local test :)"
 
 USERS = {
-    'admin': 'Adm1n_$3cur3p@$$',
-    'user1': 'user1_$3cur3p@$$',
-    'user2': 'user2_$3cur3p@$$'
+    'admin': 'adminP@ssw0rd123',
+    'user1': 'user1P@ssw0rd123',
+    'user2': 'user2P@ssw0rd123'
 }
 
-auth_logs = []
-failed_attempts = {}
+DB_FILE = "auth_logs.db"
+
+def get_db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS auth_logs(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            ip TEXT,
+            user_agent TEXT,
+            success INTEGER,
+            failed_count INTEGER
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def save_log(entry):
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO auth_logs
+        (timestamp, ip, user_agent, success, failed_count) 
+        VALUES (?,?,?,?,?)
+        """, 
+        (
+            entry['timestamp'],
+            entry['ip'],
+            entry['user_agent'],
+            int(entry['success']),
+            entry.get('failed_count')
+        )
+    )
+    conn.commit()
+    conn.close()
+
+def get_logs():
+    conn = get_db()
+    logs = conn.execute("""
+        SELECT * FROM auth_logs
+        ORDER BY id DESC
+    """).fetchall()
+    conn.close()
+    return logs
+
+def get_failed_attempts_count(ip):
+    conn = get_db()
+    failed_count = conn.execute(
+        """
+            SELECT MAX(failed_count)
+            FROM auth_logs
+            WHERE ip = ?
+        """, (ip,)
+    ).fetchone()
+    conn.close()
+
+    return failed_count[0] if failed_count[0] is not None else 0
 
 @app.route('/', methods=['GET', 'POST'])
 def home():
+    if 'current_ip' not in session:
+        session['current_ip'] = generate_public_ip()
+    
+    if 'current_user_agent' not in session:
+        session['current_user_agent'] = generate_user_agent()
 
-    ip = session.get('current_ip', generate_public_ip())
-    user_agent = session.get('current_user_agent', generate_user_agent())
+    ip = session['current_ip']
+    user_agent = session['current_user_agent']
 
     if request.method == 'POST':
-        ip = request.form.get('current_ip', generate_public_ip())
-        user_agent = request.form.get('current_user_agent', generate_user_agent())
+        ip = session['current_ip']
+        user_agent = session['current_user_agent']
+
         username = request.form.get('username')
         password = request.form.get('password')
-
-        session['current_ip'] = ip
-        session['current_user_agent'] = user_agent
 
         log_entry = {
             'timestamp': datetime.now().isoformat(),
             'ip': ip,
-            'username': username,
-            'success': False,
             'user_agent': user_agent,
-            'hour': datetime.now().hour
+            'success': False
         }
 
         if username in USERS and USERS[username] == password:
             log_entry['success'] = True
-            message = f'Login successful for {username}'
-
-            if ip in failed_attempts:
-                del failed_attempts[ip]
         else:
-            if ip not in failed_attempts:
-                failed_attempts[ip] = {'count': 0, 'first_attempt': datetime.now().isoformat()}
-            
-            failed_attempts[ip]['count'] += 1
-            failed_attempts[ip]['last_attempt'] = datetime.now().isoformat()
-            
-            log_entry['failed_count'] = failed_attempts[ip]['count']
-            message = f"Login failed for {username}"
+            last_failed = get_failed_attempts_count(ip)
+            log_entry['failed_count'] = last_failed + 1
 
-        auth_logs.append(log_entry)
+        save_log(log_entry)
 
-        if len(auth_logs) > 2000:
-            auth_logs.pop(0)
-
-        return render_template_string('''
+        return render_template_string("""
         <html>
             <style>
-                body { font-family: 'Roboto', sans-serif; }
+                body { font-family: 'Roboto', Arial, sans-serif; }
             </style>
             <body>
                 <h1>Test App</h1>
-                <h2>{{ message }}</h2>
                 <p>IP: {{ ip }}</p>
                 <p>User-Agent: {{ user_agent }}</p>
                 <p>Failed attempts from this IP: {{ failed_count }}</p>
-                <a href="/">Try again</a> |
-            </body>
+                <a href="/">Try again</a>
+            </body>                  
         </html>
-        ''', message=message, ip=ip, user_agent=user_agent, failed_count=failed_attempts.get(ip, {}).get("count", 0))
-    return render_template_string('''
+        """, failed_count=log_entry['failed_count'], ip=ip, user_agent=user_agent)
+
+    return render_template_string("""
     <html>
         <style>
-            body { font-family: Arial; padding: 40px; }
-            .login-box { border: 1px solid #ccc; padding: 30px; max-width: 400px; margin: auto; }
-            input { padding: 10px; margin: 10px 0; width: 100%; }
-            button { background: #28a745; color: white; padding: 12px; width: 100%; border: none; cursor: pointer; }
+            body { font-family: 'Roboto', Arial, sans-serif; }
         </style>
         <body>
-            <div class="login-box">
-                <h1>Test App</h1>
-                <p>IP: <span id="current-ip">{{ ip }}</span></p>
-                <p>User-Agent: <span id="current-ua">{{ user_agent }}</span></p>
-                <button onClick="changeSource()">Change source</button>
-                <h2>Login</h2>
-                <p><i>Test this credentials:</i></p>
-                <p><b>admin / Adm1n_$3cur3p@$$</b></p>
-                <p><b>user1 / user1_$3cur3p@$$</b></p>
-                <p><b>user2 / user2_$3cur3p@$$</b></p>
-                <form method="POST">
-                    <input type="text" name="username" placeholder="Username" required><br>
-                    <input type="password" name="password" placeholder="Password" required><br>
-                    <input type="hidden" name="current_ip" id="hidden-ip" value="{{ ip }}">
-                    <input type="hidden" name="current_user_agent" id="hidden-ua" value="{{ user_agent }}">
-                    <button type="submit">Login</button>
-                </form>
-                <p style="color: #666; font-size: 12px; margin-top: 20px;">
-                    Each login attempt generates a log that will be analyzed by the AI.
-                </p>
-            </div>
+                                  
+            <p>
+                <strong>Current IP</strong>: 
+                <span id="current-ip">
+                    {{ ip }}
+                </span>
+            </p>
+            <p>
+                <strong>Current User-Agent</strong>: 
+                <span id="current-ua">
+                    {{ user_agent }}
+                </span>
+            </p>
+            <button onClick="changeSource()">Change source</button>
+                                  
 
-            <script>                     
+            <p>
+                <strong>Available credentials</strong>:
+            </p>
+            {% for username, password in USERS.items() %}
+                <p>{{ username }}: {{ password }}</p>
+            {% endfor %}
+                                  
+            <form method="POST">
+                <input type="text" name="username" placeholder="Username" required><br>
+                <input type="password" name="password" placeholder="Password" required><br>
+                                  
+                <button type="submit">Login</button>            
+            </form>
+                                  
+            <button onClick="startAttack()">Start Attack</button>
+            <button onClick="clearLogs()">Clear Logs</button>
+            
+            <script>
                 function changeSource() {
                     fetch('/api/change-source')
-                        .then(response => response.json())
+                        .then(response=>response.json())
                         .then(data => {
-                            document.getElementById('current-ip').textContent = data.new_ip;
-                            document.getElementById('current-ua').textContent = data.new_user_agent;
-                                  
-                            document.getElementById('hidden-ip').value = data.new_ip;
-                            document.getElementById('hidden-ua').value = data.new_user_agent;
-                                  
+                            document.getElementById('current-ip').textContent = data.new_ip
+                            document.getElementById('current-ua').textContent = data.new_ua
+                                    
                             fetch('/api/set-source', {
                                 method: 'POST',
                                 headers: {
-                                    'Content-Type': 'application/json',
+                                    'Content-Type': 'application/json'          
                                 },
                                 body: JSON.stringify({
                                     ip: data.new_ip,
-                                    user_agent: data.new_user_agent
-                                })
-                            });
+                                    user_agent: data.new_ua   
+                                })                   
+                            })
                         })
                         .catch(error => {
-                            console.error('Error:', error);
-                        });
+                            console.error('Error:', error)
+                    })
+                }
+                                  
+                function startAttack() {
+                    fetch('/api/start-attack')
+                        .then(response=>response.json())
+                        .catch(error => {
+                            console.error('Error:', error)              
+                        })    
+                }
+                                  
+                function clearLogs() {
+                    fetch('/api/clear-logs', { method: 'POST' })
+                        .then(() => alert('Logs cleared successfully'));
+                }     
+           
                 }
             </script>
+                                  
         </body>
     </html>
-    ''', ip=ip, user_agent=user_agent)
+    """, USERS=USERS, ip=ip, user_agent=user_agent)
+
+@app.route('/api/clear-logs', methods=['POST'])
+def clear_logs():
+    conn = get_db()
+    conn.execute("DELETE FROM auth_logs")
+    conn.commit()
+    conn.close()
+
+    return jsonify({'status': 'logs cleared'})
+
+@app.route('/logs')
+def show_logs():
+    logs = get_logs()
+    logs_html = '<h2>logs</h2>'
+    for log in logs:
+        logs_html += f"""
+            <div style="border: 1px solid #222; margin-bottom: 10px; padding: 8px;">
+                {log['timestamp']} | IP: {log['ip']} | User-Agent: {log['user_agent']}<br>
+                {log['success']}<br>
+                Failed attempts until now: {log['failed_count']}
+            </div>
+        """
+
+    return f"""
+        <html>
+            <body style="font-family: 'Roboto', Arial, sans-serif;">
+                {logs_html}
+            </body>
+        </html>
+        """
+
+@app.route('/api/change-source')
+def change_source():
+    new_ip = generate_public_ip()
+    new_ua = generate_user_agent()
+    return jsonify({
+        'new_ip': new_ip,
+        'new_ua': new_ua
+    })
 
 @app.route('/api/set-source', methods=['POST'])
 def set_source():
-    data = request.get_json()  # Mudar para get_json()
+    data = request.get_json()
     session['current_ip'] = data.get('ip')
     session['current_user_agent'] = data.get('user_agent')
     return jsonify({'status': 'success'})
 
-@app.route('/logs')
-def show_logs():
-    logs_html = "<h2>Authentication Logs</h2>"
-    
-    for log in reversed(auth_logs[-50:]):
-        color = "green" if log.get('success') else "red"
-        logs_html += f'''
-        <div style="border: 1px solid #ccc; margin: 10px; padding: 10px; background: #f9f9f9;">
-            <p><b>{log['timestamp']}</b> - IP: {log['ip']} - User-Agent: {log['user_agent']}</p>
-            <p>Usuário: {log['username']} - 
-               <span style="color: {color}; font-weight: bold;">
-                 {"SUCCESS" if log.get('success') else "FAILURE"}
-               </span>
-            </p>
-            <p>Tentativas falhas: {log.get('failed_count', 0)}</p>
-        </div>
-        '''
-    
-    return f'''
-    <html>
-        <body style="font-family: Arial; padding: 20px;">
-            {logs_html}
-            <a href="/">← Back</a>
-        </body>
-    </html>
-    '''
+@app.route('/api/start-attack')
+def start_attack():
+    ip = session.get('current_ip')
+    user_agent = session.get('current_user_agent')
 
-@app.route('/api/logs')
-def get_logs_api():
+    target_user = 'admin'
+
+    try:
+        with open('passwords.txt') as f:
+            passwords = [line.strip() for line in f if line.strip()]
+    except FileNotFoundError:
+        return jsonify({'error': 'passwords.txt not found'}), 500
+    
+    attempts = 0
+    success = 0
+
+    for pwd in passwords:
+        attempts += 1
+
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'ip': ip,
+            'user_agent': user_agent,
+            'success': False
+        }
+
+        if USERS.get(target_user) == pwd:
+            log_entry['success'] = True
+            success += 1
+        else:
+            last_failed = get_failed_attempts_count(ip)
+            log_entry['failed_count'] = last_failed + 1
+
+        save_log(log_entry)
+        time.sleep(0.15)
+
     return jsonify({
-        'total_logs': len(auth_logs),
-        'failed_attempts_by_ip': failed_attempts,
-        'recent_logs': auth_logs[-20:],
-        'timestamp': datetime.now().isoformat()
+        'attempts': attempts,
+        'success': success,
+        'user': target_user
     })
 
-@app.route('/api/change-source')
-def change_ip():
-    new_ip = generate_public_ip()
-    new_user_agent = generate_user_agent()
-    return jsonify({
-            'new_ip': new_ip,
-            'new_user_agent': new_user_agent
-        })
+
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=True)
