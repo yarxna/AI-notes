@@ -181,6 +181,14 @@ def home():
                 <button type="submit">Login</button>            
             </form>
                                   
+            <label for="target-user"><strong>Target user:</strong></label><br>
+            <select id="target-user">
+                {% for username in USERS.keys() %}
+                    <option value="{{ username }}">{{ username }}</option>
+                {% endfor %}
+            </select>
+            <br><br>
+                                  
             <button id="atk-btn" onClick="startAttack()">Start Attack</button>
             <p id="attack-status" style="margin-top:10px; font-weight:bold;"></p>
             <button onClick="clearLogs()">Clear Logs</button>
@@ -212,18 +220,27 @@ def home():
                 function startAttack() {
                     const btn = document.getElementById('atk-btn');
                     const status = document.getElementById('attack-status');
+                    const targetUser = document.getElementById('target-user').value;
 
 
                     btn.disabled = true;
                     btn.style.opacity = '0.6';
                     status.style.color = '#d39e00';
-                    status.textContent = 'Attack in progress…';
+                    status.textContent = `Attack in progress against "${targetUser}"…`;
 
-                    fetch('/api/start-attack')
+                        fetch('/api/start-attack', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                target_user: targetUser
+                            })
+                        })
                         .then(response=>response.json())
                         .then(data => {
                         status.style.color = '#28a745';
-                        status.textContent = 'Attack finished';
+                        status.textContent = `Attack finished (${data.attempts} attempts)`;
 
 
                         btn.disabled = false;
@@ -293,12 +310,13 @@ def set_source():
     session['current_user_agent'] = data.get('user_agent')
     return jsonify({'status': 'success'})
 
-@app.route('/api/start-attack')
+@app.route('/api/start-attack', methods=['POST'])
 def start_attack():
+    data = request.get_json()
+    target_user = data.get('target_user')
+
     ip = session.get('current_ip')
     user_agent = session.get('current_user_agent')
-
-    target_user = 'admin'
 
     try:
         with open('passwords.txt') as f:
