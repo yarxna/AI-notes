@@ -10,7 +10,22 @@ app.secret_key = "this is a local test :)"
 USERS = {
     'admin': 'adminP@ssw0rd123',
     'user1': 'user1P@ssw0rd123',
-    'user2': 'user2P@ssw0rd123'
+    'user2': 'user2P@ssw0rd123',
+
+    'root': 'root123',
+    'guest': 'guest123',
+    'test': 'test123',
+    'demo': 'demo123',
+
+    'alice': 'alice2024',
+    'bob': 'bob2024',
+    'charlie': 'charlie123',
+    'david': 'david123',
+
+    'support': 'support@123',
+    'developer': 'dev123',
+    'devops': 'devops123',
+    'security': 'security123'
 }
 
 DB_FILE = "auth_logs.db"
@@ -28,6 +43,7 @@ def init_db():
             timestamp TEXT,
             ip TEXT,
             user_agent TEXT,
+            username TEXT,
             success INTEGER,
             failed_count INTEGER
         )
@@ -41,13 +57,14 @@ def save_log(entry):
     conn = get_db()
     conn.execute(
         """INSERT INTO auth_logs
-        (timestamp, ip, user_agent, success, failed_count) 
-        VALUES (?,?,?,?,?)
+        (timestamp, ip, user_agent, username, success, failed_count) 
+        VALUES (?,?,?,?,?,?)
         """, 
         (
             entry['timestamp'],
             entry['ip'],
             entry['user_agent'],
+            entry['username'],
             int(entry['success']),
             entry.get('failed_count')
         )
@@ -99,7 +116,9 @@ def home():
             'timestamp': datetime.now().isoformat(),
             'ip': ip,
             'user_agent': user_agent,
-            'success': False
+            'username': username,
+            'success': False,
+            'failed_count': get_failed_attempts_count(ip)
         }
 
         if username in USERS and USERS[username] == password:
@@ -117,13 +136,15 @@ def home():
             </style>
             <body>
                 <h1>Test App</h1>
+                <p>{{ login_timestamp }}</p>
                 <p>IP: {{ ip }}</p>
                 <p>User-Agent: {{ user_agent }}</p>
+                <p>Username: {{ username }}</p>
                 <p>Failed attempts from this IP: {{ failed_count }}</p>
                 <a href="/">Try again</a>
             </body>                  
         </html>
-        """, failed_count=log_entry['failed_count'], ip=ip, user_agent=user_agent)
+        """, failed_count=log_entry['failed_count'], ip=ip, user_agent=user_agent, username=username, login_timestamp=log_entry['timestamp'])
 
     return render_template_string("""
     <html>
@@ -131,7 +152,7 @@ def home():
             body { font-family: 'Roboto', Arial, sans-serif; }
         </style>
         <body>
-                                  
+            <h1>Test App</h1>                
             <p>
                 <strong>Current IP</strong>: 
                 <span id="current-ip">
@@ -144,16 +165,15 @@ def home():
                     {{ user_agent }}
                 </span>
             </p>
-            <button onClick="changeSource()">Change source</button>
-                                  
+            <button onClick="changeSource()">Change source</button>                            
 
             <p>
                 <strong>Available credentials</strong>:
             </p>
             {% for username, password in USERS.items() %}
-                <p>{{ username }}: {{ password }}</p>
+                <p style="margin: 2px 0;">{{ username }}: {{ password }}</p>
             {% endfor %}
-                                  
+            <br>             
             <form method="POST">
                 <input type="text" name="username" placeholder="Username" required><br>
                 <input type="password" name="password" placeholder="Password" required><br>
@@ -161,7 +181,8 @@ def home():
                 <button type="submit">Login</button>            
             </form>
                                   
-            <button onClick="startAttack()">Start Attack</button>
+            <button id="atk-btn" onClick="startAttack()">Start Attack</button>
+            <p id="attack-status" style="margin-top:10px; font-weight:bold;"></p>
             <button onClick="clearLogs()">Clear Logs</button>
             
             <script>
@@ -189,8 +210,25 @@ def home():
                 }
                                   
                 function startAttack() {
+                    const btn = document.getElementById('atk-btn');
+                    const status = document.getElementById('attack-status');
+
+
+                    btn.disabled = true;
+                    btn.style.opacity = '0.6';
+                    status.style.color = '#d39e00';
+                    status.textContent = 'Attack in progress…';
+
                     fetch('/api/start-attack')
                         .then(response=>response.json())
+                        .then(data => {
+                        status.style.color = '#28a745';
+                        status.textContent = 'Attack finished';
+
+
+                        btn.disabled = false;
+                        btn.style.opacity = '1';
+                        })
                         .catch(error => {
                             console.error('Error:', error)              
                         })    
@@ -200,8 +238,6 @@ def home():
                     fetch('/api/clear-logs', { method: 'POST' })
                         .then(() => alert('Logs cleared successfully'));
                 }     
-           
-                }
             </script>
                                   
         </body>
@@ -220,13 +256,16 @@ def clear_logs():
 @app.route('/logs')
 def show_logs():
     logs = get_logs()
-    logs_html = '<h2>logs</h2>'
+    logs_html = '<h2>Authentication Logs</h2>'
     for log in logs:
+        color = 'green' if log['success'] else 'red'
+        success = 'SUCCESS' if log['success'] else 'FAILURE'
         logs_html += f"""
-            <div style="border: 1px solid #222; margin-bottom: 10px; padding: 8px;">
-                {log['timestamp']} | IP: {log['ip']} | User-Agent: {log['user_agent']}<br>
-                {log['success']}<br>
-                Failed attempts until now: {log['failed_count']}
+            <div style="border: 1px solid #222; margin-bottom: 10px; padding: 12px;">
+                <strong>{log['timestamp']}</strong> | <strong>IP</strong>: {log['ip']} | <strong>User-Agent</strong>: {log['user_agent']}<br>
+                <strong>Username</strong>: {log['username']}<br>
+                <span style="color: {color};"><strong>{success}</strong></span><br>
+                <strong>Failed attempts from this IP so far</strong>: {log['failed_count']}
             </div>
         """
 
@@ -277,7 +316,9 @@ def start_attack():
             'timestamp': datetime.now().isoformat(),
             'ip': ip,
             'user_agent': user_agent,
-            'success': False
+            'username': target_user,
+            'success': False,
+            'failed_count': get_failed_attempts_count(ip)
         }
 
         if USERS.get(target_user) == pwd:
@@ -295,8 +336,6 @@ def start_attack():
         'success': success,
         'user': target_user
     })
-
-
 
 
 if __name__ == '__main__':
