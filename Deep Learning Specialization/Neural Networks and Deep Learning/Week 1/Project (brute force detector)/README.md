@@ -12,14 +12,18 @@ Basically, it puts together everything learned in the first week of the Deep Lea
 
 ## Examples
 "Slow" attack (60 seconds between attempts - continuous):
+
 ![Slow Attack Detection](assets/slow_attack.png)
+
 Volume: 0.45... (9 failed attempts)
 Speed: 0.009...
 Time Concentration: 0.0 (all attempts spread out)
 Persistence: 0.80... (9 failed attempts continuous over 9 minutes, usually a real person would not try that long continuously)
 
 Fast attack (0.15 seconds between attempts - continuous - usual brute force):
+
 ![Fast Attack Detection](assets/normal_attack.png)
+
 Volume: 0.1 (2 failed attempts first time it was detected)
 Speed: 1.0 (very fast attempts, humans can't type that fast, that's why it was detected quickly)
 Time Concentration: 1.0 (all attempts in a short time window / burst)
@@ -28,8 +32,9 @@ Persistence: 0.001... (it was detected quickly, but if it continued it would inc
 ## Application
 
 ### Web Interface:
-- `localhost:5001/` - main page
-![Main Page](assets/main_page.png) - Shows a simulated IP and user-agent (that I didn't use for this project). You can change both pushing `change source` button. You can manually log in (success or fail) or start a brute force attack simulation against a chosen target. Also, you can clear logs.
+- `localhost:5001/` - main page - Shows a simulated IP and user-agent (that I didn't use for this project). You can change both pushing `change source` button. You can manually log in (success or fail) or start a brute force attack simulation against a chosen target. Also, you can clear logs.
+- 
+![Main Page](assets/main_page.png)
 - `localhost:5001/logs` - show all logs 
 
 ## Endpoints
