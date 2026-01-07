@@ -1,0 +1,1 @@
+Just realized that Binary Classification is actually Week 2 content, not Week 1. Well... it'll stay here in my Week 1 notes lol.
