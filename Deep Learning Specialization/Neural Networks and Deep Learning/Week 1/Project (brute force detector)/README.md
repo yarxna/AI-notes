@@ -2,7 +2,7 @@
 
 This project implements binary classification using logistic regression to act as a (pseudo) AI that detects brute force attacks based on login attempt logs + hardcoded values (that in a real world scenario would be learned from data).
 
-Basically, it puts together everything learned in the first week of the Deep Learning Specialization by Andrew Ng on Coursera, especially the binary classification class.
+Basically, it puts together everything learned in the first and second week of the Deep Learning Specialization by Andrew Ng on Coursera, especially the binary classification class.
 
 ## Features, weights and whys
 - Volume: number of failed attempts from an IP / weight = 4.0 - brute force attacks usually involve many attempts
