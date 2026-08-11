@@ -18,7 +18,7 @@ Basically, it puts together everything learned in the first and second week of t
 - Volume: 0.45... (9 failed attempts)
 - Speed: 0.009...
 - Time Concentration: 0.0 (all attempts spread out)
-- Persistence: 0.80... (9 failed attempts continuous over 9 minutes, usually a real person would not try that long continuously)
+- Persistence: 0.80... (9 failed attempts continuous over 9 minutes, usually a real person would not try that long continuously... actually it would, but anyway)
 
 ### Fast attack (0.15 seconds between attempts - continuous - usual brute force):
 
